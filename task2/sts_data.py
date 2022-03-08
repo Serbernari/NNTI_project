@@ -39,7 +39,8 @@ class STSData:
         self.load_data(dataset_name, columns_mapping, stopwords_path)
         self.columns_mapping = columns_mapping
         ## create vocabulary
-
+        self.create_vocab()
+        
         ## test to see if vocab works
         print('Testing vocab. Index for kids is {}'.format(self.vocab['kids']))
 

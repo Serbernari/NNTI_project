@@ -163,7 +163,9 @@ class SiameseBiLSTMAttention(nn.Module):
 
         ## implement forward pass on both sentences. calculate similarity using similarity_score()
         sent_A, sent_A_attention = self.forward_once(sent1_batch, sent1_mask)
+        self.sent_A_mh_att_matrix = self.encoder.layer_attention_matrices
         sent_B, sent_B_attention = self.forward_once(sent2_batch, sent2_mask)
+        self.sent_B_mh_att_matrix = self.encoder.layer_attention_matrices
         similarity = similarity_score(sent_A, sent_B)
 
         return similarity, sent_A_attention, sent_B_attention
