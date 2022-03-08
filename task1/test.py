@@ -1,6 +1,5 @@
 from scipy import stats
 import logging
-import torch
 from sklearn.metrics import r2_score, mean_squared_error
 
 
@@ -23,19 +22,15 @@ def evaluate_test_set(model, data_loader, config_dict):
         _,
         _,
     ) in data_loader["test"]:
-        ## perform forward pass
-        pred = None
-        loss = None
 
-        ## perform forward pass
+        ## forward pass
+        pred,sent1_annotation_weight_matrix,sent2_annotation_weight_matrix = model(sent1.to(device),sent2.to(device))
 
-        (pred,sent1_annotation_weight_matrix,sent2_annotation_weight_matrix,) = model(sent1.to(device),sent2.to(device))
-
-
+        ## keep track of gold labels and predictions
         y_true += list(targets.float())
         y_pred += list(pred.data.float().detach().cpu().numpy())
 
-    ## computing accuracy using sklearn's function
+    ## computing different accuracy measurements
     acc = r2_score(y_true, y_pred)
     r = stats.pearsonr(y_true, y_pred)
     rho = stats.spearmanr(y_true, y_pred)

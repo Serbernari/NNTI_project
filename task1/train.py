@@ -1,15 +1,11 @@
 import random
-from sklearn.ensemble import GradientBoostingClassifier
 import torch
 from torch import nn
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, f1_score
 import logging
 from tqdm import tqdm
-from torch.autograd import Variable
-#import transformers
-from torch.utils.data.distributed import DistributedSampler
-from torch.utils.data.sampler import RandomSampler
 from siamese_lstm_attention import SiameseBiLSTMAttention
+from scipy import stats
 
 
 logging.basicConfig(level=logging.INFO)
@@ -22,18 +18,22 @@ while monitoring a metric like accuracy etc
 
 def train_model(model, optimizer, dataloader, data, max_epochs, config_dict):
     device = config_dict["device"]
-    criterion = nn.MSELoss()  ## since we are doing binary classification
+    criterion = nn.MSELoss()  
     max_accuracy = 1e-1
+
+    ## to keep track of training parameters
     best_model = None
     train_losses = list()
     val_losses = list()
     train_accs = list()
     val_accs = list()
+
     for epoch in tqdm(range(max_epochs)):
 
         logging.info("Epoch: {}".format(epoch))
-        true_labels = list()
-        predicted_labels = list()
+        ## keep track of predictions and gold labels
+        true_scores = list()
+        predicted_scores = list()
 
         total_loss = 0.0
         for (
@@ -47,18 +47,11 @@ def train_model(model, optimizer, dataloader, data, max_epochs, config_dict):
         ) in dataloader["train"]:
             model.train()
             model.zero_grad()
-            pred = None
-            loss = None
 
             ## forward pass
-            (
-                pred,
-                sent1_annotation_weight_matrix,
-                sent2_annotation_weight_matrix,
-            ) = model(
-                sent1.to(device),
-                sent2.to(device)
-            )
+            pred, sent1_annotation_weight_matrix, sent2_annotation_weight_matrix = model(sent1.to(device), sent2.to(device))
+
+            ## get loss for attention penalty as shown in AAAI paper
             sent1_attention_loss = attention_penalty_loss(
                 sent1_annotation_weight_matrix,
                 config_dict["self_attention_config"]["penalty"],
@@ -70,12 +63,9 @@ def train_model(model, optimizer, dataloader, data, max_epochs, config_dict):
                 device,
             )
 
-            ##  floss with penalty
+            ##  loss with penalty
             loss = (
-                criterion(
-                    pred.to(device),
-                    torch.autograd.Variable(targets.float()).to(device),
-                )
+                criterion( pred.to(device),targets.float().to(device))
                 + sent1_attention_loss
                 + sent2_attention_loss
             )
@@ -83,25 +73,24 @@ def train_model(model, optimizer, dataloader, data, max_epochs, config_dict):
             ## backward pass
             loss.backward()
 
-            ## clip gradients to avoid exploding gradients
-            #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
+            # clip gradients to avoid exploding gradients
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
 
             ## update gradients
             optimizer.step()
 
-            ## save labels
-            true_labels += list(targets.float().numpy())
+            ## save gold labels
+            true_scores += list(targets.float().numpy())
 
             ## save output predictions
-            predicted_labels += list(pred.data.float().detach().cpu().numpy())
+            predicted_scores += list(pred.data.float().detach().cpu().numpy())
 
             ## keep track of loss over batches
             total_loss += loss
 
-        ## computing accuracy using sklearn's function
-        acc = r2_score(true_labels, predicted_labels)
+        ## computing accuracy using pearson correlation
+        acc, p = stats.pearsonr(true_scores, predicted_scores)
 
-        model.zero_grad()
         ## compute model metrics on dev set
         val_acc, val_loss = evaluate_dev_set(
             model, data, criterion, dataloader, config_dict, device
@@ -123,22 +112,29 @@ def train_model(model, optimizer, dataloader, data, max_epochs, config_dict):
         )
 
         ## save losses and accuracy for visualization
-        train_losses.append(torch.mean(total_loss.data.float()).item())
+        train_losses.append((total_loss.data.float().item()/len(dataloader["train"])))
         train_accs.append(acc.item())
         val_losses.append(val_loss.item())
         val_accs.append(val_acc.item())
+
     return best_model, train_losses, train_accs, val_losses, val_accs
 
 def train_hyperparameters(model, optimizer, dataloader, data, max_epochs, config_dict):
-    device = config_dict["device"]
-    criterion = nn.MSELoss()  ## since we are doing binary classification
-    max_accuracy = 0.0
-    for epoch in tqdm(range(max_epochs)):
+    '''
+    training loop used when trying to find best hyperparameter combination.
+    Does not log as much info or keep track of as many lists
+    '''
 
-        #logging.info("Epoch: {}".format(epoch))
-        y_true = list()
-        y_pred = list()
-        total_loss = 0
+    device = config_dict["device"]
+    criterion = nn.MSELoss() 
+    max_accuracy = 0.0
+
+    for epoch in tqdm(range(max_epochs)):
+        ## keep track of predictions and gold labels
+        true_scores = list()
+        predicted_scores = list()
+        total_loss = 0.0
+        model.train()
         for (
             sent1,
             sent2,
@@ -148,19 +144,13 @@ def train_hyperparameters(model, optimizer, dataloader, data, max_epochs, config
             _,
             _,
         ) in dataloader["train"]:
-            model.train()
+            
             model.zero_grad()
-            pred = None
-            loss = None
 
-            (
-                pred,
-                sent1_annotation_weight_matrix,
-                sent2_annotation_weight_matrix,
-            ) = model(
-                sent1.to(device),
-                sent2.to(device)
-            )
+            ## forward pass
+            pred,sent1_annotation_weight_matrix,sent2_annotation_weight_matrix = model(sent1.to(device), sent2.to(device))
+            
+            ## get loss for attention penalty as shown in AAAI paper
             sent1_attention_loss = attention_penalty_loss(
                 sent1_annotation_weight_matrix,
                 config_dict["self_attention_config"]["penalty"],
@@ -171,12 +161,10 @@ def train_hyperparameters(model, optimizer, dataloader, data, max_epochs, config
                 config_dict["self_attention_config"]["penalty"],
                 device,
             )
-            ## compute loss
+
+            ## compute loss with penalty
             loss = (
-                criterion(
-                    pred.to(device),
-                    torch.autograd.Variable(targets.float()).to(device),
-                )
+                criterion(pred.to(device), targets.float().to(device))
                 + sent1_attention_loss
                 + sent2_attention_loss
             )
@@ -184,26 +172,23 @@ def train_hyperparameters(model, optimizer, dataloader, data, max_epochs, config
             ## backward pass
             loss.backward()
 
-            ## clip gradients to avoid exploding gradients
-            #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
+            # clip gradients to avoid exploding gradients
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
 
             ## update gradients
             optimizer.step()
 
             ## save labels
-            y_true += list(targets.float().numpy())
+            true_scores += list(targets.float().numpy())
 
             ## save output predictions
-            y_pred += list(pred.data.float().detach().cpu().numpy())
+            predicted_scores += list(pred.data.float().detach().cpu().numpy())
 
             ## accumulate train loss
             total_loss += loss
 
-            # print(y_true, y_pred)
-
-        ## computing accuracy using sklearn's function
-        #acc = r2_score(y_true, y_pred)
         model.zero_grad()
+
         ## compute model metrics on dev set
         val_acc, val_loss = evaluate_dev_set(
             model, data, criterion, dataloader, config_dict, device
@@ -212,16 +197,13 @@ def train_hyperparameters(model, optimizer, dataloader, data, max_epochs, config
         if val_acc > max_accuracy:
             max_accuracy = val_acc
 
-        # logging.info(
-        #     "Train loss: {} - acc: {} -- Validation loss: {} - acc: {}".format(
-        #         torch.mean(total_loss.data.float()), acc, val_loss, val_acc
-        #     )
-        # )
-
     logging.info(max_accuracy)
     return max_accuracy
 
 def init_candidate():
+    '''
+    randomly generate hyperparameter combination for creating a model
+    '''
     hidden_sizes = [64,128,192,256,320,400,512,600]
     learning_rates = [1e-3,2e-3,5e-4,8e-5]
     fc_hidden_sizes = [64, 128, 256, 400]
@@ -252,6 +234,10 @@ def init_candidate():
         }
 
 def get_hyperparameter_set():
+    '''
+    Python set of all hyperparameters that are relevant during training
+    '''
+
     hp_set = set()
     hp_set.add('hidden_size')
     hp_set.add('lstm_layer')
@@ -266,13 +252,17 @@ def get_hyperparameter_set():
     return hp_set
 
 def get_mutation(hp, value):
+    '''
+    Changes (mutates) the value of a hyperparamter (hp). Special rules apply to each type pf hyperparameter
+    '''
+
     if hp == 'hidden_size':
         change = (random.randint(1, 50) - 25)
         value = value + change
         value = max(1, value) #no negative or 0 hidden size
         return value
     if hp == 'lstm_layer':
-        change = (random.randint(1, 1) - 2)
+        change = random.choice([-1,1])
         value = value + change
         value = max(2, value) #at least 2 layers
         return value
@@ -317,8 +307,9 @@ def get_mutation(hp, value):
 
 def genetic_hyperparam_search(data_loader, device,vocab_size, embedding_weights,config_dict, mutation_chance=0.25, num_candidates=8,batch_size=128, output_size=128,embedding_size=300,bidirectional=True, max_epochs=25, num_gens=10):
     """
-    inding best hyperparameters using genetic algorithm
+    Finding best hyperparameters using genetic algorithm
     """
+
     logging.info("Finding best hyperparameters using genetic algorithm")
     models = list()
 
@@ -385,30 +376,38 @@ def genetic_hyperparam_search(data_loader, device,vocab_size, embedding_weights,
     return best_model
 
 def crossing_over(parents,num_candidates, mutation_rate, device, vocab_size, embedding_weights, batch_size=64, output_size=1,embedding_size=300,bidirectional=True):
-    #num_children = num_candidates-4
+    '''
+    Handles the step of producing child model from the best parent models, passing down their hyperparameters and randomly mutating them.
+    '''
+
     children = list()
+    ## Parent combinations that produce a child
     marriages = [(parents[0], parents[1]),(parents[0], parents[3]),(parents[1], parents[2]),(parents[2], parents[3])]
     for (p1,p2) in marriages:
         hyperparams = get_hyperparameter_set()
         child_params = dict.fromkeys(hyperparams, 0)
+
+        ## iterate over every relevant hyperparameter
         for hp in list(hyperparams):
-            #print('hp is: {}'.format(hp))
+
+            ## choose from which parent to take the hyperparameter value
             chance = random.random()
             param = p2['c'][hp]
             if(chance > 0.5):
                 param = p1['c'][hp]
-
+            
+            ## randomly mutate some hyperparameter values, depending on mutation rate
             mutation = random.random()
             if(mutation > (1.0-mutation_rate)):
-                #print('mutating {} '.format(hp))
                 param = get_mutation(hp, param)
-                # if hp == 'dropout' or hp == 'a_p':
-                #     param = min(1.0, param)
-                
+                ## negative values are not supported
                 param = max(0, param)
 
+            ## save new parameter value
             child_params[hp] = param
         
+
+        ## Create dictionary object of new child
         self_attention_config = {
             "hidden_size": child_params['a_hs'],  ## refers to variable 'da' in the ICLR paper
             "output_size": child_params['a_os'],  ## refers to variable 'r' in the ICLR paper
@@ -441,8 +440,7 @@ def crossing_over(parents,num_candidates, mutation_rate, device, vocab_size, emb
                 'c':child_params
             }
         )
-        #print('after append len is {}'.format(len(children)))
-    #print('after crossing over model len is {}'.format(len(children)))
+
     return children
         
 
@@ -450,10 +448,12 @@ def evaluate_dev_set(model, data, criterion, data_loader, config_dict, device):
     """
     Evaluates the model performance on dev data
     """
-    #logging.info("Evaluating accuracy on dev set")
+    ## eval mode
     model.eval()
-    y_true = list()
-    y_pred = list()
+
+    ## keep track of predictions and gold labels
+    true_scores = list()
+    predicted_scores = list()
     total_loss = 0
     with torch.no_grad():
         for (
@@ -465,19 +465,11 @@ def evaluate_dev_set(model, data, criterion, data_loader, config_dict, device):
             _,
             _,
         ) in data_loader["validation"]:
-            ## perform forward pass
-            pred = None
-            loss = None
             
             ## perform forward pass
-            (
-                pred,
-                sent1_annotation_weight_matrix,
-                sent2_annotation_weight_matrix,
-            ) = model(
-                sent1.to(device),
-                sent2.to(device)
-            )
+            pred,sent1_annotation_weight_matrix,sent2_annotation_weight_matrix = model(sent1.to(device), sent2.to(device))
+
+            ## calculate loss penalty
             sent1_attention_loss = attention_penalty_loss(
                 sent1_annotation_weight_matrix,
                 config_dict["self_attention_config"]["penalty"],
@@ -488,22 +480,21 @@ def evaluate_dev_set(model, data, criterion, data_loader, config_dict, device):
                 config_dict["self_attention_config"]["penalty"],
                 device,
             )
+
             ## compute loss
             loss = (
-                criterion(
-                    pred.to(device),
-                    torch.autograd.Variable(targets.float()).to(device),
-                )
+                criterion(pred.to(device), targets.float().to(device))
                 + sent1_attention_loss
                 + sent2_attention_loss
             )
 
-        y_true += list(targets.float())
-        y_pred += list(pred.data.float().detach().cpu().numpy())
-        total_loss += loss
-    ## computing accuracy using sklearn's function
-    acc = r2_score(y_true, y_pred)
+            ## save predicted scores and true scores
+            true_scores += list(targets.float())
+            predicted_scores += list(pred.data.float().detach().cpu().numpy())
+            total_loss += loss
 
+    ## compute Pearson correlation
+    acc, p = stats.pearsonr(true_scores, predicted_scores)
     return acc, total_loss.data.float()/len(data_loader['validation'])
 
 

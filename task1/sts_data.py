@@ -40,6 +40,8 @@ class STSData:
         self.columns_mapping = columns_mapping
         ## create vocabulary
         self.create_vocab()
+
+        ## test to see if vocab works
         print('Testing vocab. Index for kids is {}'.format(self.vocab['kids']))
 
         s = self.dataset['train']['sentence_A'][0]
@@ -49,6 +51,7 @@ class STSData:
         print(self.vocab.itos[0])
         print(self.vocab.itos[1])
         print(self.vocab.itos[2])
+        ## print data columns
         print(self.dataset['train'].columns)
 
     def load_data(self, dataset_name, columns_mapping, stopwords_path):
@@ -57,22 +60,26 @@ class STSData:
         """
         logging.info("loading and preprocessing data...")
 
-        ## TODO load datasets
+        ## load datasets
         dataset = load_dataset(dataset_name)
+        ## make pandas dataframes
         train = pd.DataFrame(dataset['train'])
         test = pd.DataFrame(dataset['test'])
         validation = pd.DataFrame(dataset['validation'])
+        ## save to dictionary
         dataset = {'train':train, 'validation':validation, 'test':test}
 
         
         logging.info(dataset['train']['sentence_A'][42])
         logging.info(dataset['train']['sentence_B'][42])
         
-        ## TODO perform text preprocessing
+        ## perform text preprocessing
         preprocessor = Preprocess(stopwords_path)
         self.dataset = preprocessor.perform_preprocessing(data=dataset, columns_mapping=columns_mapping)
         
         logging.info("reading and preprocessing data completed...")
+
+        ## for comparison
         logging.info(self.dataset['train']['sentence_A'][42])
         logging.info(self.dataset['train']['sentence_B'][42])
 
@@ -93,11 +100,15 @@ class STSData:
             lower=True
         )
 
+        ## use pretrianed fasttext vectors to build vocab
         text_field.build_vocab(train_conc, vectors='fasttext.simple.300d')
         self.vocab = text_field.vocab
         logging.info("creating vocabulary completed...")
     
     def tokenize_src(self, text):
+        '''
+        function to use when tokenizing
+        '''
         return [tok.text for tok in self.spacy_en.tokenizer(text)]
 
     def data2tensors(self, data):
@@ -105,18 +116,18 @@ class STSData:
         Converts raw data sequences into vectorized sequences as tensors
         """
         
-        # vectorize sentences
+        ## vectorize sentences
         data['sentence_A']=data['sentence_A'].apply(self.vectorize_sequence)
         data['sentence_B']=data['sentence_B'].apply(self.vectorize_sequence)
 
-
+        ## save sentence length (do we need this?)
         sent_A_lens = torch.tensor(data['sentence_A'].apply(len))
         sent_B_lens = torch.tensor(data['sentence_B'].apply(len))
-        #normalize label
-        #data['label']=(data['label']-data['label'].mean())/data['label'].std()
+
+        ## normalize label
         data['relatedness_score']=(data['relatedness_score']/self.normalization_const)
-        #print('labels are now {}'.format(data['label']))
-        #pad sentences
+
+        ## pad sentences
         a_max_len = max(data['sentence_A'].apply(len))
         b_max_len = max(data['sentence_B'].apply(len))
         max_len = max(a_max_len, b_max_len)
@@ -125,22 +136,24 @@ class STSData:
         data['sentence_B'] = self.pad_sequences(data['sentence_B'], max_len)
         print(data['sentence_B'][69])
 
-        #dataframe to tensors
+        ## dataframe to tensors
         sent_A_tensor = torch.tensor(data['sentence_A'])
         sent_B_tensor = torch.tensor(data['sentence_B'])
         target_tensor = torch.tensor(data['relatedness_score'])
-        #print(target_tensor)
 
-        #return some STSDataSet object from data
+
+        ## return STSDataSet object from data
         stsDatset = STSDataset(sent_A_tensor, sent_B_tensor, target_tensor,sent_A_lens, sent_B_lens, data['sentence_A'], data['sentence_B'])
 
         return stsDatset
 
     def get_data_loader(self, batch_size=8):
+        ## turn data into tensors
         training_data = self.data2tensors(self.dataset['train'])
         test_data = self.data2tensors(self.dataset['test'])
         validation_data = self.data2tensors(self.dataset['validation'])
 
+        ## one dataloader per split
         train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
         test_dataloader = DataLoader(test_data, batch_size=batch_size, shuffle=True)
         validation_dataloader = DataLoader(validation_data, batch_size=batch_size, shuffle=True)
@@ -172,6 +185,6 @@ class STSData:
         
         for sentence in vectorized_sents:
             while len(sentence) < sents_lengths:
-                sentence.append(self.vocab.stoi['<unk>'])
+                sentence.append(self.vocab.stoi['<pad>'])
 
         return vectorized_sents
