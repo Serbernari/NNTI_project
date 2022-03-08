@@ -29,7 +29,6 @@ class STSDataset(Dataset):
         self.sent1_tensor = sent1_tensor
         self.sent2_tensor = sent2_tensor
         self.target_tensor = target_tensor
-        #print(self.target_tensor)
         self.sents1_length_tensor = sents1_length_tensor
         self.sents2_length_tensor = sents2_length_tensor
         self.raw_sents_1 = raw_sents_1

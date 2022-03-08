@@ -252,11 +252,9 @@ dm
 do
 does
 doesn
-doesn't
 doesnt
 doing
 don
-don't
 done
 dont
 doubtful
@@ -521,8 +519,6 @@ iq
 ir
 is
 isn
-isn't
-isnt
 it
 it'd
 it'll
@@ -707,7 +703,6 @@ ni
 nine
 ninety
 nl
-no
 no-one
 nobody
 non
@@ -717,7 +712,6 @@ noone
 nor
 normally
 nos
-not
 noted
 nothing
 notwithstanding
@@ -1188,7 +1182,6 @@ wells
 went
 were
 weren
-weren't
 werent
 weve
 wf

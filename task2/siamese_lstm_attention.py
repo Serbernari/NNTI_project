@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 from torch.nn import functional as F
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from utils import similarity_score
 import transformer_encoder
 
@@ -49,21 +48,24 @@ class SiameseBiLSTMAttention(nn.Module):
         self.lstm_directions = (
             2 if self.bidirectional else 1
         )  ## decide directions based on input flag
+
+        ## set dropout
         self.dropout = dropout
         self.self_attention_config = self_attention_config
 
         ## configuration of hyperparameters for attention encoder blocks
         self.attention_encoder_config = attention_encoder_config
+
         ## token used for padding to create attention mask
         self.pad_index = pad_index
         
-        ## model layers
+        ## initialize look up table
         self.word_embeddings = nn.Embedding(vocab_size, embedding_size)
-        #print('embedding_size is {}'.format(embedding_size))
 
-        #We assign the embedding weights to the pretrained vectors 
+        ## assign the look-up table to the pre-trained fasttext word embeddings.
         self.word_embeddings.weight = nn.Parameter(embedding_weights.to(self.device), requires_grad=True)
-        #print('word_embeddings shape is {}'.format(self.word_embeddings.weight.shape))
+
+        ## initialize transformer encoder layer
         self.encoder = transformer_encoder.Encoder(
             device, 
             self.attention_encoder_config['n_layers'], 
@@ -74,7 +76,7 @@ class SiameseBiLSTMAttention(nn.Module):
             self.attention_encoder_config['vocab_max']
         )
 
-        #bidirectional lstm layer
+        ## initialize lstm layer
         self.biLSTM= nn.LSTM(
             self.embedding_size,
             self.lstm_hidden_size,
@@ -85,7 +87,7 @@ class SiameseBiLSTMAttention(nn.Module):
 
         ## incase we are using bi-directional lstm we'd have to take care of bi-directional outputs in
         ## subsequent layers
-        #self attention layer, config come from self_attention_config
+        ## self attention layer, config come from self_attention_config
         self.attention = SelfAttention(
             self.lstm_hidden_size * self.lstm_directions,
             self.self_attention_config['hidden_size'],
@@ -118,38 +120,32 @@ class SiameseBiLSTMAttention(nn.Module):
         """
 
         ## batch shape: (batch_size, seq_len) ([64, 14])
-        #print('batch shape is {}'.format(batch.shape))
         ## embeddings shape: ( batch_size, seq_len, embedding_size) ([64, 14, 300])
-        #print('embeddings shape is {}'.format(self.word_embeddings(batch).shape))
-        embeddings = self.word_embeddings(batch)#.permute(1,0,2)
-        #print('embeddings shape is {}'.format(self.word_embeddings(batch).shape)) #([64, 14, 300])
 
-        encoder_out = self.encoder(embeddings, attention_encoder_mask).permute(1,0,2) #(seq_len, batch_size, embedding_size)
-        #print('encoder_out shape is {}'.format(encoder_out.shape))
+        embeddings = self.word_embeddings(batch)
 
+        ## encoder_out shape: (seq_len, batch_size, embedding_size)
+        encoder_out = self.encoder(embeddings, attention_encoder_mask).permute(1,0,2) 
 
-        # print('lstm_hidden_weights is {}'.format(self.lstm_hidden_weights))
+        ## lstm_out = H in AAAI paper
+        ## lstm_out shape: (seq_len, batch_size, bidirectional*hidden_size) ([14, 64, 256])
         lstm_out, (fhs, fcs) = self.biLSTM(encoder_out, self.lstm_hidden_weights)#H
 
-        # out shape (seq_len, batch_size, bidirectional*hidden_size)([14, 64, 256])
-        #print('lstm output shape is {}'.format(lstm_out.shape))
-
-        #go batch first again
+        ## go batch first again
+        ## shape: (batch_size, seq_len, bidirectional*hidden_size)
         lstm_out = lstm_out.permute(1,0,2)
 
-        attention = self.attention(lstm_out) #A
-        #print('attention shape is {}'.format(attention.shape))
+        ## A matrix from AAAI paper
+        attention = self.attention(lstm_out)
 
+        ## out shape: (batch_size, attention_output, bidirectional*hidden_size) ([64, 20, 256])
         out = torch.bmm(attention, lstm_out)
-        #(batch_size, attention_output, bidirectional*hidden_size) ([64, 20, 256])
-        #print('after bmm shape is {}'.format(out.shape))
 
-        #(batch_size, attention_output*bidirectional*hidden_size)
+        ## after reshape: (batch_size, attention_output*bidirectional*hidden_size)
         out = out.reshape(-1, self.lstm_directions*self.lstm_hidden_size*self.self_attention_config['output_size'])
-        #print('after reshape output shape is {}'.format(out.shape))
+
+        ## final shape after fc layer: (batch_size,output_size)
         out = self.fc_layer(out)
-        #(batch_size,output_size)
-        #print('after fully connected shape is {}'.format(out.shape))
 
         return out, attention
 
@@ -157,19 +153,27 @@ class SiameseBiLSTMAttention(nn.Module):
         """
         Performs the forward pass for each batch
         """
-        #batch size might change at the end of epoch
-        self.lstm_hidden_weights = self.init_hidden(sent1_batch.shape[0])
+        ## get multihead attention encoder mask. Mask padding so no attention is paid to pad tokens
         sent1_mask = self.get_encoder_mask(sent1_batch)
         sent2_mask = self.get_encoder_mask(sent2_batch)
+
+        ## init context and hidden weights for lstm cell
+        ## batch size might change at the end of an epoch
+        self.lstm_hidden_weights = self.init_hidden(sent1_batch.shape[0])
+
+        ## implement forward pass on both sentences. calculate similarity using similarity_score()
         sent_A, sent_A_attention = self.forward_once(sent1_batch, sent1_mask)
         sent_B, sent_B_attention = self.forward_once(sent2_batch, sent2_mask)
         similarity = similarity_score(sent_A, sent_B)
-        #print('similarity is {}'.format(similarity.shape))
+
         return similarity, sent_A_attention, sent_B_attention
 
     def get_encoder_mask(self, input_sentence_batch):
+        '''
+        Gets mask for the multihead attention encoder layers. This is so <pad> tokens will have no attention paid to them.
+        '''
         src_mask = (input_sentence_batch != self.pad_index).unsqueeze(1).unsqueeze(2)
-        # (N, 1, 1, src_len)
+        ## shape: (batch_size, 1, 1, seq_len)
 
         return src_mask.to(self.device)
 
@@ -185,29 +189,28 @@ class SelfAttention(nn.Module):
         self.hidden_size = hidden_size
         self.att_output_size = output_size
 
-        #Ws1
+        ## Ws1 from AAAI
         self.Ws1 = nn.Linear(self.input_size, self.hidden_size, bias=False)
-        #Ws2
+        ## Ws2 from AAAI
         self.Ws2 = nn.Linear(self.hidden_size, self.att_output_size, bias=False)
 
     ## the forward function would receive lstm's all hidden states as input
     def forward(self, attention_input):
-        #([64, 14, 256]) (batch_sie, seq_len, n_lyer*hidden_size)
-        #print('attention_iput has shape has shape{}'.format(attention_input.shape))
+        ## attention_input shape: (batch_sie, seq_len, n_lyer*hidden_size)
 
+        ## x_shape: (batch_size, seq_len, attention_hidden)
         x = self.Ws1(attention_input)
-        #([64, 14, 150]) (batch_sie, seq_len, attention_hidden)
-        #print('after first pass x has shape{}'.format(x.shape))
 
+        ## x_shape: (batch_sie, seq_len, attention_hidden)
         x = torch.tanh(x)
-        #([64, 14, 150]) (batch_sie, seq_len, attention_hidden)
-        #print('after tanh x has shape{}'.format(x.shape))
 
+        ## x_shape: (batch_size, seq_len, attention_output_size)
         x = self.Ws2(x)
-        #([64, 14, 20]) (batch_sie, seq_len, attention_output_size)
-        #print('after second pass x has shape{}'.format(x.shape))
 
-        x = x.permute(0,2,1) #(batch_size, attention_output_size, seq_len)
+        ## x_shape: (batch_size, attention_output_size, seq_len)
+        x = x.permute(0,2,1) 
+        
+        ## Softmax across dim 2 as written in paper
         return F.softmax(x, dim=2)
 
 
