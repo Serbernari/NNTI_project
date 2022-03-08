@@ -454,7 +454,7 @@ def evaluate_dev_set(model, data, criterion, data_loader, config_dict, device):
     ## keep track of predictions and gold labels
     true_scores = list()
     predicted_scores = list()
-    total_loss = 0
+    total_loss = 0.0
     with torch.no_grad():
         for (
             sent1,

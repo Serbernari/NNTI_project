@@ -51,6 +51,7 @@ class STSData:
         print(self.vocab.itos[0])
         print(self.vocab.itos[1])
         print(self.vocab.itos[2])
+        
         ## print data columns
         print(self.dataset['train'].columns)
 

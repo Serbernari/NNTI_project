@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 from torch.nn import functional as F
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from utils import similarity_score
 
 
@@ -110,9 +109,10 @@ class SiameseBiLSTMAttention(nn.Module):
         lstm_out, (fhs, fcs) = self.biLSTM(embeddings, self.lstm_hidden_weights)
 
         ## go batch first again
+        ## shape: (batch_size, seq_len, bidirectional*hidden_size)
         lstm_out = lstm_out.permute(1,0,2)
 
-        # A matrix from AAAI paper
+        ## A matrix from AAAI paper
         attention = self.attention(lstm_out) 
 
         ## out shape: (batch_size, attention_output, bidirectional*hidden_size) ([64, 20, 256])
@@ -153,9 +153,9 @@ class SelfAttention(nn.Module):
         self.hidden_size = hidden_size
         self.att_output_size = output_size
 
-        #Ws1 from AAAI
+        ## Ws1 from AAAI
         self.Ws1 = nn.Linear(self.input_size, self.hidden_size, bias=False)
-        #Ws2 from AAAI
+        ## Ws2 from AAAI
         self.Ws2 = nn.Linear(self.hidden_size, self.att_output_size, bias=False)
 
     ## the forward function would receive lstm's all hidden states as input
@@ -174,6 +174,7 @@ class SelfAttention(nn.Module):
         ## x_shape: (batch_size, attention_output_size, seq_len)
         x = x.permute(0,2,1) 
         
+        ## Softmax across dim 2 as written in paper
         return F.softmax(x, dim=2)
 
 

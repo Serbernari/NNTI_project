@@ -10,9 +10,9 @@ def evaluate_test_set(model, data_loader, config_dict):
     """
     logging.info("Evaluating accuracy on test set")
     device = config_dict['device']
-    y_true = list()
-    y_pred = list()
-    #total_loss = 0
+    true_scores = list()
+    predicted_scores = list()
+
     for (
         sent1,
         sent2,
@@ -27,14 +27,14 @@ def evaluate_test_set(model, data_loader, config_dict):
         pred,sent1_annotation_weight_matrix,sent2_annotation_weight_matrix = model(sent1.to(device),sent2.to(device))
 
         ## keep track of gold labels and predictions
-        y_true += list(targets.float())
-        y_pred += list(pred.data.float().detach().cpu().numpy())
+        true_scores += list(targets.float())
+        predicted_scores += list(pred.data.float().detach().cpu().numpy())
 
     ## computing different accuracy measurements
-    acc = r2_score(y_true, y_pred)
-    r = stats.pearsonr(y_true, y_pred)
-    rho = stats.spearmanr(y_true, y_pred)
-    mse = mean_squared_error(y_true, y_pred)
+    acc = r2_score(true_scores, predicted_scores)
+    r = stats.pearsonr(true_scores, predicted_scores)
+    rho = stats.spearmanr(true_scores, predicted_scores)
+    mse = mean_squared_error(true_scores, predicted_scores)
 
     return acc, r, rho, mse
 
