@@ -24,74 +24,66 @@ while monitoring a metric like accuracy etc
 
 def train_model(model, optimizer, dataloader, data, max_epochs, config_dict):
     device = config_dict["device"]
-    criterion = nn.MSELoss()  ## since we are doing binary classification
+    criterion = nn.MSELoss() 
     max_accuracy = 1e-1
+
+    ## to keep track of training parameters
     best_model = None
     train_losses = list()
     val_losses = list()
     train_accs = list()
     val_accs = list()
+
     for epoch in tqdm(range(max_epochs)):
 
         logging.info("Epoch: {}".format(epoch))
-        y_true = list()
-        y_pred = list()
 
-        total_loss = 0
+        ## keep track of predictions and gold labels
+        true_scores = list()
+        predicted_scores = list()
+        model.train()
+        total_loss = 0.0
         for (
             sent1,
             sent2,
-            sents1_len,
-            sents2_len,
+            _,
+            _,
             targets,
             _,
             _,
         ) in dataloader["train"]:
-            model.train()
+            
             model.zero_grad()
-            pred = None
-            loss = None
 
             ## forward pass
-            pred = model(
-                sent1.to(device),
-                sent2.to(device)
+            pred = model(sent1.to(device),sent2.to(device)
             )
-            # sent1_attention_loss = attention_penalty_loss(
-            #     sent1_annotation_weight_matrix,
-            #     config_dict["self_attention_config"]["penalty"],
-            #     device,
-            # )
-            # sent2_attention_loss = attention_penalty_loss(
-            #     sent2_annotation_weight_matrix,
-            #     config_dict["self_attention_config"]["penalty"],
-            #     device,
-            # )
 
-            ##  loss
+            ## loss, no more self attention penalty
             loss = criterion(pred.to(device),targets.float().to(device),)
 
             ## backward pass
             loss.backward()
 
-            ## clip gradients to avoid exploding gradients
-            #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
+            # clip gradients to avoid exploding gradients
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
 
             ## update gradients
             optimizer.step()
 
             ## save labels
-            y_true += list(targets.float().numpy())
+            true_scores += list(targets.float().numpy())
 
             ## save output predictions
-            y_pred += list(pred.data.float().detach().cpu().numpy())
+            predicted_scores += list(pred.data.float().detach().cpu().numpy())
 
             ## keep track of loss over batches
             total_loss += loss
 
         ## computing accuracy using spearman correlation
-        acc = stats.spearmanr(y_true, y_pred).correlation#r2_score(y_true, y_pred)
-        mse = mean_squared_error(y_true, y_pred)
+        acc = stats.spearmanr(true_scores, predicted_scores).correlation
+        mse = mean_squared_error(true_scores, predicted_scores)
+
         ## compute model metrics on dev set
         val_acc, val_loss, val_mse = evaluate_dev_set(
             model, data, criterion, dataloader, config_dict, device
@@ -112,7 +104,7 @@ def train_model(model, optimizer, dataloader, data, max_epochs, config_dict):
         )
 
         ## save losses and accuracy for visualization
-        train_losses.append(torch.mean(total_loss.data.float()).item())
+        train_losses.append( torch.mean(total_loss.data.float()/len(dataloader["train"])).item())
         train_accs.append(acc.item())
         val_losses.append(val_loss.item())
         val_accs.append(val_acc)
@@ -120,7 +112,7 @@ def train_model(model, optimizer, dataloader, data, max_epochs, config_dict):
 
 def train_hyperparameters(model, optimizer, dataloader, data, max_epochs, config_dict):
     device = config_dict["device"]
-    criterion = nn.MSELoss()  ## since we are doing binary classification
+    criterion = nn.MSELoss()  
     max_accuracy = 0.0
     best_val_loss =9999999
     for epoch in tqdm(range(max_epochs)):
@@ -128,43 +120,26 @@ def train_hyperparameters(model, optimizer, dataloader, data, max_epochs, config
         for (
             sent1,
             sent2,
-            sents1_len,
-            sents2_len,
+            _,
+            _,
             targets,
             _,
             _,
         ) in dataloader["train"]:
             model.train()
             model.zero_grad()
-            pred = None
-            loss = None
 
+            ## forward pass
             pred = model(sent1.to(device),sent2.to(device))
-            # sent1_attention_loss = attention_penalty_loss(
-            #     sent1_annotation_weight_matrix,
-            #     config_dict["self_attention_config"]["penalty"],
-            #     device,
-            # )
-            # sent2_attention_loss = attention_penalty_loss(
-            #     sent2_annotation_weight_matrix,
-            #     config_dict["self_attention_config"]["penalty"],
-            #     device,
-            # )
-            ## compute loss
-            loss = (
-                criterion(
-                    pred.to(device),
-                    torch.autograd.Variable(targets.float()).to(device),
-                )
-                # + sent1_attention_loss
-                # + sent2_attention_loss
-            )
+
+            ## compute loss, no more self attention penalty
+            loss = ( criterion(pred.to(device), targets.float().to(device)))
 
             ## backward pass
             loss.backward()
 
-            ## clip gradients to avoid exploding gradients
-            #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
+            # clip gradients to avoid exploding gradients
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
 
             ## update gradients
             optimizer.step()
@@ -179,9 +154,6 @@ def train_hyperparameters(model, optimizer, dataloader, data, max_epochs, config
 
         if val_acc > max_accuracy:
             max_accuracy = val_acc
-
-        # if val_mse < best_val_loss:
-        #     best_val_loss = val_mse
 
     logging.info(val_mse.item())
     return val_mse.item()
@@ -433,38 +405,38 @@ def evaluate_dev_set(model, data, criterion, data_loader, config_dict, device):
     """
     Evaluates the model performance on dev data
     """
-    #logging.info("Evaluating accuracy on dev set")
     model.eval()
-    y_true = list()
-    y_pred = list()
-    total_loss = 0
+    true_scores = list()
+    predicted_scores = list()
+    total_loss = 0.0
     with torch.no_grad():
         for (
             sent1,
             sent2,
-            sents1_len,
-            sents2_len,
+            _,
+            _,
             targets,
             _,
             _,
         ) in data_loader["validation"]:
-            ## perform forward pass
-            pred = None
-            loss = None
-            
-            ## perform forward pass
+
+            ## forward pass
             pred = model(
                 sent1.to(device),
                 sent2.to(device)
             )
+
+            ## loss
             loss = criterion(pred.to(device),targets.float().to(device))           
             total_loss += loss
-        y_true += list(targets.float())
-        y_pred += list(pred.data.float().detach().cpu().numpy())
-        
-    ## computing accuracy using sklearn's function
-    acc = stats.spearmanr(y_true, y_pred).correlation
-    mse = mean_squared_error(y_true, y_pred)
+
+            ## keep track of predictions and gold labels
+            true_scores += list(targets.float())
+            predicted_scores += list(pred.data.float().detach().cpu().numpy())
+            
+    ## computing accuracy using Spearman rho
+    acc = stats.spearmanr(true_scores, predicted_scores).correlation
+    mse = mean_squared_error(true_scores, predicted_scores)
 
     return acc, torch.mean(total_loss.data.float()/len(data_loader["validation"])), mse 
 

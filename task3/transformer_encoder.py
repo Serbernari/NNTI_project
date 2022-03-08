@@ -52,6 +52,10 @@ class Encoder(nn.Module):
         self.n_heads = n_heads
         self.expansion = expansion
         self.src_vocab = src_vocab
+        self.n_layers = n_layers
+
+        ##shape: (n_layer, batch_size, n_heads, seq_len, seq_len)
+        self.layer_attention_matrices = None
 
         ## positional embedding encodes word position within sentences
         self.pos_embedding = nn.Embedding(vocab_max, size_embed)
@@ -61,7 +65,9 @@ class Encoder(nn.Module):
     def forward(self, input_embedding, mask):
         ## shape: (batch_size, sequence_len, embedding_size)
         n, seq_len, embedding_size = input_embedding.shape
-        
+
+        self.layer_attention_matrices = torch.zeros((self.n_layers, n, self.n_heads, seq_len, seq_len))
+
         #get positions of words in input to make embeddings. Add positional embeding to word embedding to get 
         #positional information into the embeddings
         input_positions = torch.arange(0, seq_len).expand(n, seq_len).to(self.device)
@@ -73,8 +79,9 @@ class Encoder(nn.Module):
         res = input_embedding
 
         #repeat the internal encoder loop n_layers times
-        for layer in self.layers:
+        for i, layer in enumerate(self.layers):
             res = layer(res, res, res, mask)
+            self.layer_attention_matrices[i] = layer.attention.attention_matrix
 
         return res
 

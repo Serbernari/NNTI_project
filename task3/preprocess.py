@@ -22,15 +22,12 @@ class Preprocess:
         
 
     def perform_preprocessing(self, data, columns_mapping):
-        ## TODO normalize text to lower case
         data = self.lower_case(data)
 
-        ## TODO remove punctuations
         data = self.remove_punctuation(data)
 
         ## TODO remove stopwords
         data = self.remove_stopwords(data)
-        ## TODO add any other preprocessing method (if necessary)
         return data
 
     def lower_case(self, dataset):
@@ -55,10 +52,10 @@ class Preprocess:
         return dataset
 
     def remove_stopwords(self, dataset):
-        dataset['train']['sentence_A'] = dataset['train']['sentence_A'].apply(lambda sentence: [word for word in sentence.split() if word not in self.stop_words])
-        dataset['train']['sentence_B'] = dataset['train']['sentence_B'].apply(lambda sentence: [word for word in sentence.split() if word not in self.stop_words])
-        dataset['test']['sentence_A'] = dataset['test']['sentence_A'].apply(lambda sentence: [word for word in sentence.split() if word not in self.stop_words])
-        dataset['test']['sentence_B'] = dataset['test']['sentence_B'].apply(lambda sentence: [word for word in sentence.split() if word not in self.stop_words])
-        dataset['validation']['sentence_A'] = dataset['validation']['sentence_A'].apply(lambda sentence: [word for word in sentence.split() if word not in self.stop_words])
-        dataset['validation']['sentence_B'] = dataset['validation']['sentence_B'].apply(lambda sentence: [word for word in sentence.split() if word not in self.stop_words])
+        dataset['train']['sentence_A'] = dataset['train']['sentence_A'].apply(lambda sentence: [word for word in sentence.split()])# if word not in self.stop_words])
+        dataset['train']['sentence_B'] = dataset['train']['sentence_B'].apply(lambda sentence: [word for word in sentence.split()])# if word not in self.stop_words])
+        dataset['test']['sentence_A'] = dataset['test']['sentence_A'].apply(lambda sentence: [word for word in sentence.split()])# if word not in self.stop_words])
+        dataset['test']['sentence_B'] = dataset['test']['sentence_B'].apply(lambda sentence: [word for word in sentence.split()])# if word not in self.stop_words])
+        dataset['validation']['sentence_A'] = dataset['validation']['sentence_A'].apply(lambda sentence: [word for word in sentence.split()])# if word not in self.stop_words])
+        dataset['validation']['sentence_B'] = dataset['validation']['sentence_B'].apply(lambda sentence: [word for word in sentence.split()])# if word not in self.stop_words])
         return dataset

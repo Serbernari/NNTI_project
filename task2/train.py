@@ -41,8 +41,8 @@ def train_model(model, optimizer, dataloader, data, max_epochs, config_dict):
         for (
             sent1,
             sent2,
-            sents1_len,
-            sents2_len,
+            _,
+            _,
             targets,
             _,
             _,
@@ -53,7 +53,7 @@ def train_model(model, optimizer, dataloader, data, max_epochs, config_dict):
             ## forward pass
             pred, sent1_annotation_weight_matrix,sent2_annotation_weight_matrix = model(sent1.to(device),sent2.to(device))
             
-            ##calculate attention penaly like shown in paper
+            ## calculate attention penaly like shown in paper
             sent1_attention_loss = attention_penalty_loss(
                 sent1_annotation_weight_matrix,
                 config_dict["self_attention_config"]["penalty"],
@@ -90,8 +90,9 @@ def train_model(model, optimizer, dataloader, data, max_epochs, config_dict):
             ## keep track of loss over batches
             total_loss += loss
 
-        ## computing accuracy using Pearson correlation
-        acc, p = stats.pearsonr(true_scores, predicted_scores)
+        ## computing accuracy using Spearman correlation
+        #acc, p = stats.pearsonr(true_scores, predicted_scores)
+        acc = stats.spearmanr(true_scores, predicted_scores).correlation
 
         ## compute model metrics on dev set
         val_acc, val_loss, val_mse = evaluate_dev_set(
@@ -113,7 +114,7 @@ def train_model(model, optimizer, dataloader, data, max_epochs, config_dict):
         )
 
         ## save losses and accuracy for visualization
-        train_losses.append(total_loss.data.float()/len(dataloader["train"]))
+        train_losses.append( torch.mean(total_loss.data.float()/len(dataloader["train"])).item())
         train_accs.append(acc.item())
         val_losses.append(val_loss.item())
         val_accs.append(val_acc)
@@ -135,8 +136,8 @@ def train_hyperparameters(model, optimizer, dataloader, data, max_epochs, config
         for (
             sent1,
             sent2,
-            sents1_len,
-            sents2_len,
+            _,
+            _,
             targets,
             _,
             _,
@@ -362,6 +363,10 @@ def genetic_hyperparam_search(data_loader, device,vocab_size, embedding_weights,
     return models
 
 def make_model(hyperparameters, batch_size,vocab_size, embedding_size, embedding_weights, device, bidirectional=True, pad_index=0):
+    '''
+    returns a SiameseBiLSTMAttention object created with passed hyperparameters
+    '''
+
     hyperparam_dict = hyperparameters['c']
     self_attention_config = {
         "hidden_size": hyperparam_dict['a_hs'],  ## refers to variable 'da' in the ICLR paper
@@ -434,8 +439,7 @@ def crossing_over(parents, mutation_rate, device):
                 'c':child_params
             }
         )
-        #print('after append len is {}'.format(len(children)))
-    #print('after crossing over model len is {}'.format(len(children)))
+
     return children
         
 
@@ -454,8 +458,8 @@ def evaluate_dev_set(model, data, criterion, data_loader, config_dict, device):
         for (
             sent1,
             sent2,
-            sents1_len,
-            sents2_len,
+            _,
+            _,
             targets,
             _,
             _,
@@ -489,9 +493,9 @@ def evaluate_dev_set(model, data, criterion, data_loader, config_dict, device):
             predicted_scores += list(pred.data.float().detach().cpu().numpy())
             total_loss += loss
         
-    ## computing accuracy using Pearson correlation
-    acc, p = stats.pearsonr(true_scores, predicted_scores)
-    #acc = stats.spearmanr(true_scores, predicted_scores).correlation
+    ## computing accuracy using Spearman correlation
+    #acc, p = stats.pearsonr(true_scores, predicted_scores)
+    acc = stats.spearmanr(true_scores, predicted_scores).correlation
     
     mse = mean_squared_error(true_scores, predicted_scores)
 
