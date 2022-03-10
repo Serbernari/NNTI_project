@@ -228,7 +228,7 @@ def init_candidate():
 
 def get_hyperparameter_set():
     '''
-    Python set of all hyperparameters that are relevant during training
+    returns python set of all hyperparameters that are relevant during training
     '''
 
     hp_set = set()
@@ -359,8 +359,10 @@ def genetic_hyperparam_search(data_loader, device,vocab_size, embedding_weights,
         models = children
         
     models = models + best_parents
-    #sorted_model_list = sorted(models, key=lambda acc: float(acc['val_acc']), reverse=True)
-    return models
+    for model in models:
+        logging.info("Final list model with score {} and parameters hidden_size={},lstm_layers={},fc={},dropout={},a_hs={},a_os={},p={}, lr={}, e_layers={}, output_size={}".format(model['val_acc'],model['c']['hidden_size'],model['c']['lstm_layer'],model['c']['fc'],model['c']['dropout'],model['c']['a_hs'],model['c']['a_os'],model['c']['a_p'],model['c']['lr'], model['c']['e_layers'],model['c']['output_size']))
+
+    return models[0]
 
 def make_model(hyperparameters, batch_size,vocab_size, embedding_size, embedding_weights, device, bidirectional=True, pad_index=0):
     '''

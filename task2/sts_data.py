@@ -5,9 +5,8 @@ import torch
 from torch.utils.data import DataLoader
 from dataset import STSDataset
 from datasets import load_dataset
-#import torchtext
 import spacy
-from torchtext.legacy.data import Field, Example, Dataset
+from torchtext.legacy.data import Field
 
 logging.basicConfig(level=logging.INFO)
 

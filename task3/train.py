@@ -88,10 +88,10 @@ def train_model(model, optimizer, dataloader, data, max_epochs, config_dict):
         val_acc, val_loss, val_mse = evaluate_dev_set(
             model, data, criterion, dataloader, config_dict, device
         )
-        best_model = model
+        
         if val_acc > max_accuracy:
             max_accuracy = val_acc
-            #best_model = model
+            best_model = model
             logging.info(
                 "new model saved"
             )  ## save the model if it is better than the prior best
@@ -111,10 +111,16 @@ def train_model(model, optimizer, dataloader, data, max_epochs, config_dict):
     return best_model, train_losses, train_accs, val_losses, val_accs
 
 def train_hyperparameters(model, optimizer, dataloader, data, max_epochs, config_dict):
+    '''
+    training loop used when trying to find best hyperparameter combination.
+    Does not log as much info or keep track of as many lists
+    '''
+
     device = config_dict["device"]
     criterion = nn.MSELoss()  
     max_accuracy = 0.0
     best_val_loss =9999999
+
     for epoch in tqdm(range(max_epochs)):
         total_loss = 0
         for (
@@ -159,6 +165,10 @@ def train_hyperparameters(model, optimizer, dataloader, data, max_epochs, config
     return val_mse.item()
 
 def init_candidate():
+    '''
+    randomly generate hyperparameter combination for creating a model
+    '''
+
     hidden_sizes = [64,128,192,256,320,400,512,600]
     learning_rates = [1e-3,2e-3,5e-4,8e-5]
     fc_hidden_sizes = [64, 128, 256, 400]
@@ -191,6 +201,9 @@ def init_candidate():
         }
 
 def get_hyperparameter_set():
+    '''
+    Returns python set of all hyperparameters that are relevant during training
+    '''
     hp_set = set()
     hp_set.add('hidden_size')
     hp_set.add('lstm_layer')
@@ -207,7 +220,7 @@ def get_hyperparameter_set():
 
 def get_mutation(hp, value):
     '''
-    Calculates the new value of a hyperparameter after mutating
+    Changes (mutates) the value of a hyperparamter (hp). Special rules apply to each type pf hyperparameter
     '''
     if hp == 'hidden_size':
         change = (random.randint(1, 50) - 25)
@@ -312,19 +325,26 @@ def genetic_hyperparam_search(data_loader, device,vocab_size, mutation_chance=0.
         models = models + best_parents
         ## Sort the model list by validation accuracy. The 4 best models will be used as parents to create 4 child models
         sorted_model_list = sorted(models, key=lambda acc: float(acc['val_acc']), reverse=True)
+        ## and log list to console
+        for model in sorted_model_list:
+            logging.info("model with score {} and parameters fc={}, dropout={}, lr={}, e_layers={}, output_size={}, embedding_size={}".format(model['val_acc'],model['c']['fc'],model['c']['dropout'],model['c']['lr'], model['c']['e_layers'],model['c']['output_size'],model['c']['embedding_size']))        
         ## Only keep 4 best performing models
         best_parents = sorted_model_list[:4]
         ## Make children from best models by randomly combining hyperparameters
         children = crossing_over(best_parents, mutation_chance, device)
         ## Save children and start training next generation
         models = children
+
     models = models + best_parents
     for model in models:
-        logging.info("Final list model with fc={}, dropout={}, lr={}, e_layers={}, output_size={}, embedding_size={}".format(model['c']['fc'],model['c']['dropout'],model['c']['lr'], model['c']['e_layers'],model['c']['output_size'],model['c']['embedding_size']))
+        logging.info("Final list model acore {} and with fc={}, dropout={}, lr={}, e_layers={}, output_size={}, embedding_size={}".format(model['val_acc'],model['c']['fc'],model['c']['dropout'],model['c']['lr'], model['c']['e_layers'],model['c']['output_size'],model['c']['embedding_size']))
 
     return models[0]
 
 def make_model(hyperparameters, batch_size,vocab_size, device, bidirectional=True, pad_index=0):
+    '''
+    returns a SiameseBiLSTMAttention object created with passed hyperparameters
+    '''
     hyperparam_dict = hyperparameters['c']
     self_attention_config = {
         "hidden_size": hyperparam_dict['a_hs'],  ## refers to variable 'da' in the ICLR paper
@@ -396,8 +416,7 @@ def crossing_over(parents,mutation_rate, device):
                 'c':child_params
             }
         )
-        #print('after append len is {}'.format(len(children)))
-    #print('after crossing over model len is {}'.format(len(children)))
+
     return children
         
 
@@ -439,41 +458,3 @@ def evaluate_dev_set(model, data, criterion, data_loader, config_dict, device):
     mse = mean_squared_error(true_scores, predicted_scores)
 
     return acc, torch.mean(total_loss.data.float()/len(data_loader["validation"])), mse 
-
-
-def attention_penalty_loss(annotation_weight_matrix, penalty_coef, device):
-    """
-    This function computes the loss from annotation/attention matrix
-    to reduce redundancy in annotation matrix and for attention
-    to focus on different parts of the sequence corresponding to the
-    penalty term 'P' in the ICLR paper
-    ----------------------------------
-    'annotation_weight_matrix' refers to matrix 'A' in the ICLR paper
-    annotation_weight_matrix shape: (batch_size, attention_out, seq_len)
-    """
-    batch_size, attention_out_size = annotation_weight_matrix.size(0), annotation_weight_matrix.size(1)
-
-    ## Transpose seq_len and attention_out
-    annotation_weight_matrix_trans = annotation_weight_matrix.transpose(1, 2)
-
-    ## calculate AA.T
-    annotation_mul = torch.bmm(annotation_weight_matrix, annotation_weight_matrix_trans)
-
-    ## make identity matrix of correct shape like attention matrix
-    identity = torch.eye(attention_out_size, out=torch.empty_like(annotation_mul))
-
-    ## claculate difference
-    annotation_mul_difference = annotation_mul - identity
-
-    ## use pytorch to calculate frobenius norm and square it like shown in paper
-    penalty = torch.norm(annotation_mul_difference, p='fro')**2
-
-    ## return penalty loss
-    return (penalty_coef * penalty / batch_size).type(torch.FloatTensor)
-
-
-def frobenius_norm(annotation_mul_difference):
-    """
-    Computes the frobenius norm of the annotation_mul_difference input as matrix
-    """
-    pass

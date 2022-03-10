@@ -11,12 +11,10 @@ class Preprocess:
         """
         Initializes regex patterns and loads stopwords
         """
-        # TODO implement
         self.stop_words = []
 
         with open(stpwds_file_path, "r") as f:
             self.stop_words = f.read().split()
-        #rint(self.stop_words)
 
         self.punctuation_regex = '[{}]'.format(string.punctuation)
         

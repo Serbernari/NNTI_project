@@ -85,7 +85,7 @@ class SiameseBiLSTMAttention(nn.Module):
         ## shape: (seq_len, batch_size, embedding_size)
         encoder_out = self.encoder(embeddings, attention_encoder_mask)#.permute(1,0,2) 
 
-        ## mean pooling to
+        ## mean pooling layer
         encoder_out = self.mean_pool(encoder_out, attention_encoder_mask)
 
         return encoder_out
