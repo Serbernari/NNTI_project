@@ -360,7 +360,7 @@ def genetic_hyperparam_search(data_loader, device,vocab_size, embedding_weights,
         
     models = models + best_parents
     for model in models:
-        logging.info("Final list model with score {} and parameters hidden_size={},lstm_layers={},fc={},dropout={},a_hs={},a_os={},p={}, lr={}, e_layers={}, output_size={}".format(model['val_acc'],model['c']['hidden_size'],model['c']['lstm_layer'],model['c']['fc'],model['c']['dropout'],model['c']['a_hs'],model['c']['a_os'],model['c']['a_p'],model['c']['lr'], model['c']['e_layers'],model['c']['output_size']))
+        logging.info("Final models list: hidden_size={},lstm_layers={},fc={},dropout={},a_hs={},a_os={},p={}, lr={}, e_layers={}, output_size={}".format(model['c']['hidden_size'],model['c']['lstm_layer'],model['c']['fc'],model['c']['dropout'],model['c']['a_hs'],model['c']['a_os'],model['c']['a_p'],model['c']['lr'], model['c']['e_layers'],model['c']['output_size']))
 
     return models[0]
 

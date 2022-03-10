@@ -161,42 +161,28 @@ def train_hyperparameters(model, optimizer, dataloader, data, max_epochs, config
         if val_acc > max_accuracy:
             max_accuracy = val_acc
 
-    logging.info(val_mse.item())
-    return val_mse.item()
+    logging.info(val_acc)
+    return val_acc
 
 def init_candidate():
     '''
     randomly generate hyperparameter combination for creating a model
     '''
 
-    hidden_sizes = [64,128,192,256,320,400,512,600]
     learning_rates = [1e-3,2e-3,5e-4,8e-5]
-    fc_hidden_sizes = [64, 128, 256, 400]
-    attention_hidden_sizes = [128,256,400]
-    attention_output_sizes = [10,20,30,40,45]
-    hidden_size = random.choice(hidden_sizes)
-    lstm_layer = random.randint(1,7)+1
-    learning_rate = random.choice(learning_rates)
-    fc_hidden_size = random.choice(fc_hidden_sizes)
-    dropout = random.random()*0.5
-    attention_hidden_size = random.choice(attention_hidden_sizes)
-    attention_output_size = random.choice(attention_output_sizes)
-    attention_penalty = random.random()
-    encoder_layers = random.randint(1,8)
-    output_size = random.randint(1,300)
-    embedding_size = random.choice([300,600,900]) ## embedding_size must be evenly divisible by num_heads
+    n_heads = [6, 12, 15, 20, 30]
 
+    learning_rate = random.choice(learning_rates)
+    dropout = random.random()*0.5
+    encoder_layers = random.randint(1,8)
+    embedding_size = 300
+    n_heads = random.choice(n_heads)
     return {
-        'hidden_size':hidden_size,
-        'lstm_layer':lstm_layer, 
+
         'lr':learning_rate, 
-        'fc':fc_hidden_size, 
         'dropout':dropout, 
-        'a_hs':attention_hidden_size, 
-        'a_os':attention_output_size, 
-        'output_size': output_size,
-        'a_p':attention_penalty,
         'e_layers': encoder_layers,
+        "e_heads": n_heads,
         'embedding_size': embedding_size
         }
 
@@ -205,16 +191,10 @@ def get_hyperparameter_set():
     Returns python set of all hyperparameters that are relevant during training
     '''
     hp_set = set()
-    hp_set.add('hidden_size')
-    hp_set.add('lstm_layer')
     hp_set.add('lr')
-    hp_set.add('fc')
     hp_set.add('dropout')
-    hp_set.add('a_hs')
-    hp_set.add('a_os')
-    hp_set.add('a_p')
     hp_set.add('e_layers')
-    hp_set.add('output_size')
+    hp_set.add('e_heads')
     hp_set.add('embedding_size')
     return hp_set
 
@@ -222,30 +202,19 @@ def get_mutation(hp, value):
     '''
     Changes (mutates) the value of a hyperparamter (hp). Special rules apply to each type pf hyperparameter
     '''
-    if hp == 'hidden_size':
-        change = (random.randint(1, 50) - 25)
-        value = value + change
-        value = max(1, value) #no negative or 0 hidden size
-        return value
-    if hp == 'lstm_layer':
-        change = random.choice([-1,1])
-        value = value + change
-        value = max(2, value) #at least 2 layers
-        return value
     if hp == 'e_layers':
         change = random.choice([-1,1])
         value = value + change
         value = max(1, value) #at least 1 layer
         return value
+
+    if hp == 'e_heads':
+        ## changing heads is difficult, because it must be evenly divisble into embedding_size
+        return value
     if hp == 'lr':
         change =(random.random()*3e-5 - 2e-5)
         value = value + change
         value = max(1e-6, value)
-        return value
-    if hp == 'fc':
-        change = (random.randint(1, 50) - 25)
-        value = value + change
-        value = max(1, value) 
         return value
     if hp == 'dropout':
         change = (random.random()*0.2 - 0.1)
@@ -253,35 +222,12 @@ def get_mutation(hp, value):
         value = min(0.99, value) #not over 0.99
         value = max(1e-7, value) #keep at least some dropout
         return value
-    if hp == 'a_hs':
-        change = (random.randint(1, 50) - 25)
-        value = value + change
-        value = max(1, value) 
-        return value
-    if hp == 'a_os':
-        change = (random.randint(1, 10) - 5)
-        value = value + change
-        value = max(1, value) 
-        return value
-    if hp == 'a_p':
-        change = (random.random()*0.2 - 0.1)
-        value = value + change
-        value = min(1.0, value)
-        value = max(0.0, value) 
-        return value
-    if hp == 'output_size':
-        change = (random.randint(1, 50) - 25)
-        value = value + change
-        value = max(2, value) 
-        return value
     if hp == 'embedding_size':
-        change =  random.choice([-15,15])*random.randint(1,4)
-        value = value + change
-        value = max(200, value) 
+        ## embedding size change no longer considered - always set at 300 due to fastext embedding
         return value
 
 
-def genetic_hyperparam_search(data_loader, device,vocab_size, mutation_chance=0.33, num_candidates=8,batch_size=128,bidirectional=True, max_epochs=25, num_gens=10, pad_index=0):
+def genetic_hyperparam_search(data_loader, device,vocab_size, mutation_chance=0.33, num_candidates=8,batch_size=64, max_epochs=25, num_gens=10, pad_index=0, embedding_weights=None):
     """
     inding best hyperparameters using genetic algorithm
     """
@@ -299,12 +245,7 @@ def genetic_hyperparam_search(data_loader, device,vocab_size, mutation_chance=0.
                 'c':candidate,
                 'config_dict':{
                     "device": device,
-                    "model_name": "siamese_lstm_attention",
-                    "self_attention_config": {
-                        "hidden_size": candidate['a_hs'],  ## refers to variable 'da' in the ICLR paper
-                        "output_size": candidate['a_os'],  ## refers to variable 'r' in the ICLR paper
-                        "penalty": candidate['a_p'],  ## refers to penalty coefficient term in the ICLR paper
-                    },
+                    "model_name": "siamese_lstm_attention"
                 },
             }
         )
@@ -314,9 +255,9 @@ def genetic_hyperparam_search(data_loader, device,vocab_size, mutation_chance=0.
 
         ## For every hyperparameter configuration, make a model and train it. While training a model, we keep the one with the best validation accuracy.
         for hyperparameters in models:
-            logging.info("Starting train for model with parameters fc={}, dropout={}, lr={}, e_layers={}, output_size={}, embedding_size={}".format(hyperparameters['c']['fc'],hyperparameters['c']['dropout'],hyperparameters['c']['lr'], hyperparameters['c']['e_layers'],hyperparameters['c']['output_size'],hyperparameters['c']['embedding_size']))
+            logging.info("Starting train for model with parameters dropout={}, lr={}, n_layers={}, n_heads={}, embedding_size={}".format(hyperparameters['c']['dropout'],hyperparameters['c']['lr'], hyperparameters['c']['e_layers'],hyperparameters['c']['e_heads'],hyperparameters['c']['embedding_size']))
             ## Make a new model from the hyperparameters and train it
-            model = make_model(hyperparameters, batch_size=batch_size, vocab_size=vocab_size, device=device, bidirectional=bidirectional, pad_index=pad_index)
+            model = make_model(hyperparameters, batch_size=batch_size, vocab_size=vocab_size, device=device, pad_index=pad_index, embedding_weights=embedding_weights)
             optimizer = torch.optim.Adam(params=model.parameters(), lr=hyperparameters['c']['lr'])
             best_val_acc = train_hyperparameters(model, optimizer, data_loader, None, max_epochs, hyperparameters['config_dict'])
             hyperparameters['val_acc'] = best_val_acc # Save best performance during training
@@ -327,7 +268,7 @@ def genetic_hyperparam_search(data_loader, device,vocab_size, mutation_chance=0.
         sorted_model_list = sorted(models, key=lambda acc: float(acc['val_acc']), reverse=True)
         ## and log list to console
         for model in sorted_model_list:
-            logging.info("model with score {} and parameters fc={}, dropout={}, lr={}, e_layers={}, output_size={}, embedding_size={}".format(model['val_acc'],model['c']['fc'],model['c']['dropout'],model['c']['lr'], model['c']['e_layers'],model['c']['output_size'],model['c']['embedding_size']))        
+            logging.info("model with score {} and parameters dropout={}, lr={}, e_layers={}, embedding_size={}".format(model['val_acc'],model['c']['dropout'],model['c']['lr'], model['c']['e_layers'],model['c']['embedding_size']))        
         ## Only keep 4 best performing models
         best_parents = sorted_model_list[:4]
         ## Make children from best models by randomly combining hyperparameters
@@ -337,39 +278,30 @@ def genetic_hyperparam_search(data_loader, device,vocab_size, mutation_chance=0.
 
     models = models + best_parents
     for model in models:
-        logging.info("Final list model acore {} and with fc={}, dropout={}, lr={}, e_layers={}, output_size={}, embedding_size={}".format(model['val_acc'],model['c']['fc'],model['c']['dropout'],model['c']['lr'], model['c']['e_layers'],model['c']['output_size'],model['c']['embedding_size']))
+        logging.info("Final model list: dropout={}, lr={}, e_layers={}, embedding_size={}".format(model['c']['dropout'],model['c']['lr'], model['c']['e_layers'],model['c']['embedding_size']))
 
     return models[0]
 
-def make_model(hyperparameters, batch_size,vocab_size, device, bidirectional=True, pad_index=0):
+def make_model(hyperparameters, batch_size,vocab_size, device, pad_index=0, embedding_weights=None):
     '''
     returns a SiameseBiLSTMAttention object created with passed hyperparameters
     '''
     hyperparam_dict = hyperparameters['c']
-    self_attention_config = {
-        "hidden_size": hyperparam_dict['a_hs'],  ## refers to variable 'da' in the ICLR paper
-        "output_size": hyperparam_dict['a_os'],  ## refers to variable 'r' in the ICLR paper
-        "penalty": hyperparam_dict['a_p'],  ## refers to penalty coefficient term in the ICLR paper
-    }
+
     attention_encoder_config = {
         "n_layers": hyperparam_dict['e_layers'],  ## number of encoder layers
-        "n_heads": 15,  ## heads in multi-head attention
+        "n_heads": hyperparam_dict['e_heads'],  ## heads in multi-head attention
         "expansion": 4, ## encoder feed forward embedding size expansion factor
-        "vocab_max": 14 ## max sequence length
+        "vocab_max": 40 ## max sequence length
     }
 
     model = SiameseBiLSTMAttention(
         batch_size=batch_size,
-        output_size=hyperparam_dict['output_size'],
-        hidden_size=hyperparam_dict['hidden_size'],
         vocab_size=vocab_size,
         embedding_size=hyperparam_dict['embedding_size'],
-        lstm_layers=hyperparam_dict['lstm_layer'],
-        self_attention_config=self_attention_config,
+        embedding_weights=embedding_weights,
         attention_encoder_config=attention_encoder_config,
-        fc_hidden_size=hyperparam_dict['fc'],
         device=device,
-        bidirectional=bidirectional,
         pad_index=pad_index,
         dropout=hyperparam_dict['dropout']
     )
@@ -401,17 +333,11 @@ def crossing_over(parents,mutation_rate, device):
             ## Save hyperparameter value to child config
             child_params[hp] = param
         
-        self_attention_config = {
-            "hidden_size": child_params['a_hs'],  ## refers to variable 'da' in the ICLR paper
-            "output_size": child_params['a_os'],  ## refers to variable 'r' in the ICLR paper
-            "penalty": child_params['a_p'],  ## refers to penalty coefficient term in the ICLR paper
-        }
         children.append(
             {
                 'config_dict':{
                     "device": device,
-                    "model_name": "siamese_lstm_attention",
-                    "self_attention_config": self_attention_config,
+                    "model_name": "siamese_lstm_attention"
                 },
                 'c':child_params
             }

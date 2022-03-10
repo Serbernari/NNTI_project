@@ -53,7 +53,8 @@ class SiameseBiLSTMAttention(nn.Module):
         self.encoder = transformer_encoder.Encoder(
             device, 
             self.attention_encoder_config['n_layers'], 
-            dropout, embedding_size, 
+            dropout, 
+            embedding_size, 
             self.attention_encoder_config['n_heads'], 
             self.attention_encoder_config['expansion'], 
             vocab_size, 
